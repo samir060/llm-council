@@ -11,7 +11,28 @@ const API_BASE = configuredApiBase
     ? `https://${configuredApiHost.replace(/\/$/, '')}`
     : 'http://localhost:8001';
 
+const KEY_STORAGE = 'llm_council_openrouter_key';
+
+function getStoredKey() {
+  return (localStorage.getItem(KEY_STORAGE) || '').trim();
+}
+
+function authHeaders() {
+  const key = getStoredKey();
+  return key ? { 'X-OpenRouter-Key': key } : {};
+}
+
 export const api = {
+  getOpenRouterKey() {
+    return getStoredKey();
+  },
+
+  setOpenRouterKey(key) {
+    const clean = (key || '').trim();
+    if (clean) localStorage.setItem(KEY_STORAGE, clean);
+    else localStorage.removeItem(KEY_STORAGE);
+  },
+
   async listConversations() {
     const response = await fetch(`${API_BASE}/api/conversations`);
     if (!response.ok) throw new Error('Failed to list conversations');
@@ -39,7 +60,10 @@ export const api = {
       `${API_BASE}/api/conversations/${conversationId}/message`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders(),
+        },
         body: JSON.stringify({ content }),
       }
     );
@@ -52,7 +76,10 @@ export const api = {
       `${API_BASE}/api/conversations/${conversationId}/message/stream`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders(),
+        },
         body: JSON.stringify({ content }),
       }
     );
