@@ -94,6 +94,10 @@ Now provide your evaluation and ranking:"""
 
     messages = [{"role": "user", "content": ranking_prompt}]
 
+    # If only one model answered, ranking is unnecessary.
+    if len(stage1_results) < 2:
+        return [], label_to_model
+
     # Get rankings from all council models in parallel
     responses = await query_models_parallel(COUNCIL_MODELS, messages)
 
@@ -161,11 +165,18 @@ Provide a clear, well-reasoned final answer that represents the council's collec
     # Query the chairman model
     response = await query_model(CHAIRMAN_MODEL, messages)
 
-    if response is None:
-        # Fallback if chairman fails
+    if response is None or not response.get('content'):
+        # Graceful fallback: return the strongest available Stage 1 answer
+        # instead of showing a hard error to the user.
+        if stage1_results:
+            return {
+                "model": stage1_results[0]["model"],
+                "response": stage1_results[0]["response"],
+                "fallback": True,
+            }
         return {
-            "model": CHAIRMAN_MODEL,
-            "response": "Error: Unable to generate final synthesis."
+            "model": "error",
+            "response": "No model returned a usable response."
         }
 
     return {
@@ -312,6 +323,18 @@ async def run_full_council(user_query: str) -> Tuple[List, List, Dict, Dict]:
             "model": "error",
             "response": "All models failed to respond. Please try again."
         }, {}
+
+    # If only one model answered, return it directly as a robust free-tier fallback.
+    if len(stage1_results) == 1:
+        only = stage1_results[0]
+        return stage1_results, [], {
+            "model": only["model"],
+            "response": only["response"],
+            "fallback": True,
+        }, {
+            "label_to_model": {"Response A": only["model"]},
+            "aggregate_rankings": [],
+        }
 
     # Stage 2: Collect rankings
     stage2_results, label_to_model = await stage2_collect_rankings(user_query, stage1_results)
