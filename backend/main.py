@@ -163,20 +163,48 @@ async def send_message_stream(
             stage1_results = await stage1_collect_responses(payload.content)
             yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
 
-            yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
-            stage2_results, label_to_model = await stage2_collect_rankings(
-                payload.content, stage1_results
-            )
-            aggregate_rankings = calculate_aggregate_rankings(
-                stage2_results, label_to_model
-            )
-            yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
+            # Keep streaming behavior consistent with run_full_council().
+            # With zero answers we fail clearly; with exactly one answer we
+            # use that answer directly instead of calling a flaky free-router
+            # chairman that may return moderation labels such as
+            # "User Safety: safe".
+            if not stage1_results:
+                stage2_results = []
+                label_to_model = {}
+                aggregate_rankings = []
+                yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
+                stage3_result = {
+                    "model": "error",
+                    "response": "All models failed to respond. Please try again.",
+                }
+                yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
+            elif len(stage1_results) == 1:
+                only = stage1_results[0]
+                stage2_results = []
+                label_to_model = {"Response A": only["model"]}
+                aggregate_rankings = []
+                yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
+                stage3_result = {
+                    "model": only["model"],
+                    "response": only["response"],
+                    "fallback": True,
+                }
+                yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
+            else:
+                yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
+                stage2_results, label_to_model = await stage2_collect_rankings(
+                    payload.content, stage1_results
+                )
+                aggregate_rankings = calculate_aggregate_rankings(
+                    stage2_results, label_to_model
+                )
+                yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
 
-            yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
-            stage3_result = await stage3_synthesize_final(
-                payload.content, stage1_results, stage2_results
-            )
-            yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
+                yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
+                stage3_result = await stage3_synthesize_final(
+                    payload.content, stage1_results, stage2_results
+                )
+                yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
 
             if title_task:
                 title = await title_task
