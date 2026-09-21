@@ -165,9 +165,11 @@ Provide a clear, well-reasoned final answer that represents the council's collec
     # Query the chairman model
     response = await query_model(CHAIRMAN_MODEL, messages)
 
-    if response is None or not response.get('content'):
-        # Graceful fallback: return the strongest available Stage 1 answer
-        # instead of showing a hard error to the user.
+    chairman_text = response.get('content', '') if response else ''
+
+    if not _is_usable_final_response(chairman_text):
+        # Graceful fallback: return a real Stage 1 answer instead of exposing
+        # empty output or provider moderation/classifier labels.
         if stage1_results:
             return {
                 "model": stage1_results[0]["model"],
@@ -181,7 +183,7 @@ Provide a clear, well-reasoned final answer that represents the council's collec
 
     return {
         "model": CHAIRMAN_MODEL,
-        "response": response.get('content', '')
+        "response": chairman_text
     }
 
 
